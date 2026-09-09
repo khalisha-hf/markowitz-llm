@@ -4,7 +4,7 @@ scipy==1.17.1
 yfinance==1.4.1
 cvxpy==1.9.1
 matplotlib==3.10.9
-fastapi==0.115.5
+fastapi==0.141.1
 uvicorn==0.32.1
 pydantic==2.9.2
 slowapi==0.1.10
