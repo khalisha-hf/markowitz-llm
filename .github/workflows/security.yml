@@ -31,4 +31,4 @@ jobs:
       - name: Security test suite
         env:
           OPTIMIZER_API_KEY: ci-test-key
-        run: pytest tests/ -v
+        run: python -m pytest tests/ -v
