@@ -1,5 +1,6 @@
 import os
 import re
+import secrets
 from datetime import date
 from typing import List
 
@@ -12,10 +13,8 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from src.data import load_returns
-from src.optimizer import (
-    portfolio_performance, max_sharpe_portfolio,
-    min_variance_portfolio, monte_carlo_search
-)
+from src.explain import ExplainerUnavailable, explain_results
+from src.optimizer import optimize_portfolios
 
 load_dotenv()
 
@@ -27,7 +26,9 @@ api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 def verify_api_key(key: str = Security(api_key_header)):
-    if key != API_KEY:
+    # compare_digest takes the same time whether or not the key matches,
+    # so the key can't be guessed one character at a time from response times
+    if not key or not secrets.compare_digest(key.encode(), API_KEY.encode()):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
     return key
 
@@ -66,9 +67,7 @@ class OptimizeRequest(BaseModel):
         return end
 
 
-@app.post("/optimize")
-@limiter.limit("10/minute")
-def optimize(request: Request, body: OptimizeRequest, api_key: str = Security(verify_api_key)):
+def run_optimization(body: OptimizeRequest):
     try:
         returns, mean_returns, cov_matrix = load_returns(
             tickers=body.tickers,
@@ -81,21 +80,27 @@ def optimize(request: Request, body: OptimizeRequest, api_key: str = Security(ve
     if mean_returns.isnull().any():
         raise HTTPException(status_code=422, detail="One or more tickers returned no data")
 
-    mc_perf = monte_carlo_search(mean_returns, cov_matrix)
-    opt_weights = max_sharpe_portfolio(mean_returns, cov_matrix)
-    opt_perf = portfolio_performance(opt_weights, mean_returns, cov_matrix)
-    mv_weights = min_variance_portfolio(mean_returns, cov_matrix)
-    mv_perf = portfolio_performance(mv_weights, mean_returns, cov_matrix)
+    return optimize_portfolios(mean_returns, cov_matrix)
+
+
+@app.post("/optimize")
+@limiter.limit("10/minute")
+def optimize(request: Request, body: OptimizeRequest, api_key: str = Security(verify_api_key)):
+    return {"tickers": body.tickers, **run_optimization(body)}
+
+
+@app.post("/explain")
+@limiter.limit("5/minute")
+def explain(request: Request, body: OptimizeRequest, api_key: str = Security(verify_api_key)):
+    results = run_optimization(body)
+    try:
+        explanation = explain_results(results, start=str(body.start), end=str(body.end))
+    except ExplainerUnavailable:
+        raise HTTPException(status_code=503, detail="The explanation model is not available right now")
 
     return {
         "tickers": body.tickers,
-        "monte_carlo": {"return": mc_perf[0], "volatility": mc_perf[1], "sharpe": mc_perf[2]},
-        "max_sharpe": {
-            "return": opt_perf[0], "volatility": opt_perf[1], "sharpe": opt_perf[2],
-            "weights": dict(zip(body.tickers, opt_weights.tolist())),
-        },
-        "min_variance": {
-            "return": mv_perf[0], "volatility": mv_perf[1], "sharpe": mv_perf[2],
-            "weights": dict(zip(body.tickers, mv_weights.tolist())),
-        },
+        **results,
+        "explanation": explanation.text,
+        "unsupported_numbers": explanation.unsupported_numbers,
     }

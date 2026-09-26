@@ -4,6 +4,7 @@ import cvxpy as cp
 
 RISK_FREE_RATE = 0.04
 TRADING_DAYS = 252
+NUM_PORTFOLIOS = 10000
 
 
 def portfolio_performance(weights, mean_returns, cov_matrix):
@@ -48,18 +49,51 @@ def min_variance_portfolio(mean_returns, cov_matrix):
     return w.value
 
 
-def monte_carlo_search(mean_returns, cov_matrix, num_portfolios=10000):
-    """Your existing approach, wrapped so it can be timed and
-    compared against the optimizer functions above."""
+def monte_carlo_search(mean_returns, cov_matrix, num_portfolios=NUM_PORTFOLIOS, seed=42):
+    """The Monte Carlo approach from the notebook, wrapped so it can be
+    timed and compared against the optimizer functions above. The fixed
+    seed gives the same result on every run."""
     n = len(mean_returns)
+    rng = np.random.default_rng(seed)
     best_sharpe = -np.inf
     best_perf = None
 
     for _ in range(num_portfolios):
-        weights = np.random.random(n)
+        weights = rng.random(n)
         weights /= weights.sum()
         ret, vol, sharpe = portfolio_performance(weights, mean_returns, cov_matrix)
         if sharpe > best_sharpe:
             best_sharpe = sharpe
             best_perf = (ret, vol, sharpe)
     return best_perf
+
+
+def optimize_portfolios(mean_returns, cov_matrix):
+    """Runs all three methods and labels each weight with its ticker.
+
+    The weights follow the order of mean_returns.index (yfinance sorts the
+    tickers alphabetically), so they are labelled from that index rather
+    than from the order the tickers were requested in."""
+    tickers = list(mean_returns.index)
+
+    def summary(ret, vol, sharpe):
+        return {'return': float(ret), 'volatility': float(vol), 'sharpe': float(sharpe)}
+
+    def labelled(weights):
+        # Solvers can return tiny negatives like -1e-12, so clip them to zero
+        return {t: max(float(w), 0.0) for t, w in zip(tickers, weights)}
+
+    ms_weights = max_sharpe_portfolio(mean_returns, cov_matrix)
+    mv_weights = min_variance_portfolio(mean_returns, cov_matrix)
+
+    return {
+        'monte_carlo': summary(*monte_carlo_search(mean_returns, cov_matrix)),
+        'max_sharpe': {
+            **summary(*portfolio_performance(ms_weights, mean_returns, cov_matrix)),
+            'weights': labelled(ms_weights),
+        },
+        'min_variance': {
+            **summary(*portfolio_performance(mv_weights, mean_returns, cov_matrix)),
+            'weights': labelled(mv_weights),
+        },
+    }
