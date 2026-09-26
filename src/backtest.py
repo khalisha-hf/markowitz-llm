@@ -1,5 +1,4 @@
 import numpy as np
-import pandas as pd
 
 from src.optimizer import (
     TRADING_DAYS, RISK_FREE_RATE,
@@ -15,7 +14,9 @@ def split_returns(returns, split_date):
 
 
 def evaluate(weights, test_returns):
-    """Apply fixed weights to unseen returns and measure the result."""
+    """Apply fixed weights to unseen returns and measure the result.
+
+    The weights stay the same every day (rebalanced daily), with no trading costs."""
     daily = test_returns.values @ weights
     total_return = float(np.prod(1 + daily) - 1)
     years = len(daily) / TRADING_DAYS
@@ -23,7 +24,8 @@ def evaluate(weights, test_returns):
     annual_vol = float(np.std(daily, ddof=1) * np.sqrt(TRADING_DAYS))
     sharpe = (annual_return - RISK_FREE_RATE) / annual_vol
 
-    equity = np.cumprod(1 + daily)
+    # Start at 1.0 so a loss on the first day counts as a drawdown
+    equity = np.concatenate([[1.0], np.cumprod(1 + daily)])
     running_peak = np.maximum.accumulate(equity)
     max_drawdown = float(np.min(equity / running_peak) - 1)
 

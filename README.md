@@ -21,6 +21,7 @@ On top of this, a local LLM (run with Ollama) explains the results in plain lang
   - The portfolio with the highest Sharpe ratio (best risk-adjusted return)
   - The portfolio with the lowest risk (minimum variance)
 - Finds the same two portfolios directly with optimizers (scipy's SLSQP for the highest Sharpe ratio, cvxpy for minimum variance) and compares the Sharpe ratio and speed with the Monte Carlo search
+- Backtests the optimized portfolios: fits the weights on 2021–2023 prices, then tests them on unseen 2024–2025 prices against an equal-weight benchmark
 - Explains the results in plain English with a local LLM (Ollama), and flags any number in the explanation that doesn't match the results
 - Serves the optimizers and explanations through a FastAPI app (`POST /optimize` and `POST /explain`) with API key authentication, rate limiting and input validation
 - Runs security scans (Bandit, pip-audit) and the tests automatically with GitHub Actions
@@ -32,6 +33,22 @@ On top of this, a local LLM (run with Ollama) explains the results in plain lang
 Each dot is one randomly weighted portfolio of the five stocks, shaded by its Sharpe ratio (yellow is higher). The red star is the portfolio with the highest Sharpe ratio and the blue star is the one with the lowest risk. The notebook prints the return, volatility, Sharpe ratio and stock weights for both.
 
 The results use daily prices from January 2021 to December 2025 and assume a 4% risk-free rate.
+
+## Backtest
+
+The results above are chosen and scored on the same prices, which makes them look better than they would be in practice. The backtest checks the approach more honestly: it fits the weights on 756 trading days (2021–2023), then holds them fixed on 506 unseen trading days (2024–2025).
+
+| Strategy (2024–2025, unseen) | Annual return | Volatility | Sharpe ratio | Max drawdown |
+|---|---|---|---|---|
+| Max Sharpe (optimized) | 13.07% | 15.60% | 0.582 | -14.29% |
+| Min Variance (optimized) | 5.35% | 14.29% | 0.094 | -14.82% |
+| Equal Weight (benchmark) | 6.94% | 14.07% | 0.209 | -14.30% |
+
+- The max Sharpe portfolio beat the equal-weight benchmark on unseen data, with a similar worst drop.
+- The min variance portfolio didn't deliver lower risk on unseen data: its volatility was slightly higher than equal weight's, and its return was the lowest. Risk estimated from past prices doesn't always hold.
+- The max Sharpe weights were concentrated (49.5% CBA, 40.3% BHP, 10.2% MQG), so its result depends heavily on two stocks, and one two-year test period can't rule out luck.
+
+Weights are rebalanced daily with no trading costs. The backtest's Sharpe ratio uses the compound annual return, so it isn't directly comparable with the optimizer's Sharpe ratio above.
 
 ## Tech stack
 
@@ -70,6 +87,12 @@ Then run all the cells (or open the notebook in VS Code and pick the `venv` kern
 
 ```bash
 python run_comparison.py
+```
+
+### Backtest
+
+```bash
+python run_backtest.py
 ```
 
 ### Plain-English explanation (local LLM)
@@ -122,11 +145,13 @@ notebooks/
 src/
   data.py                   # Downloads prices and calculates returns
   optimizer.py              # Monte Carlo search and direct optimizers
+  backtest.py               # Fits on past prices, tests on later unseen prices
   explain.py                # Plain-English explanations from a local LLM
 tests/
   conftest.py               # Test setup: API client with fake price data
   test_security.py          # API tests: API key, input validation, rate limiting
   test_optimizer.py         # Optimizer tests: weights, labels, reproducibility
+  test_backtest.py          # Backtest tests: data split, known returns, no lookahead
   test_explain.py           # LLM tests with a fake model: prompt, number checks, /explain
 images/
   efficient_frontier.png    # Chart shown above (created by the notebook)
@@ -134,6 +159,7 @@ images/
   security.yml              # Runs Bandit, pip-audit and the tests on GitHub
 api.py                      # FastAPI app for the optimizers
 run_comparison.py           # Compares Monte Carlo with the optimizers
+run_backtest.py             # Prints the backtest results
 explain_portfolio.py        # Prints a plain-English explanation of the results
 conftest.py                 # Lets pytest import from the project root
 requirements.txt            # Python packages the project needs
@@ -141,12 +167,13 @@ requirements.txt            # Python packages the project needs
 
 ## Limitations
 
-- The portfolios are chosen and scored on the same 2021–2025 prices, so they look better than they would on new data.
+- The main results are chosen and scored on the same 2021–2025 prices. The backtest checks them on unseen prices, but with five stocks and a single two-year test period.
 - The LLM can still make mistakes. The number check flags numbers that aren't in the results, but not real numbers attached to the wrong portfolio or wrong statements with no numbers in them. Small local models like `llama3.2` make these mistakes more often than larger ones, so the prompt gives the model company names, sorted weights and pre-calculated figures instead of asking it to work them out.
 
 ## Next steps
 
-- Test the portfolios on data they weren't built from (backtest)
+- Backtest over several time periods instead of one split
+- Compare against the ASX 200 index as well as equal weight
 - Add more stocks or let the stock list be configurable
 - Clean up the notebook into reusable functions/scripts
 
