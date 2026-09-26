@@ -1,6 +1,6 @@
 # Markowitz LLM Project
 
-A personal project exploring portfolio optimization using Modern Portfolio Theory (Markowitz), applied to ASX stocks, with plans to add a Large Language Model (LLM) layer to explain the results in plain language.
+A personal project exploring portfolio optimization using Modern Portfolio Theory (Markowitz), applied to ASX stocks, with a local Large Language Model (LLM) that explains the results in plain language.
 
 This project is still a work in progress.
 
@@ -8,7 +8,7 @@ This project is still a work in progress.
 
 The idea behind Modern Portfolio Theory is simple: for any level of risk, there is a mix of investments that gives the best possible return. This project uses a Monte Carlo simulation to test thousands of random portfolio combinations and find that mix, then builds what is called an "efficient frontier" from the results. It also finds the best portfolios directly with optimizers (scipy and cvxpy) and compares the two approaches.
 
-The next step is to add an LLM on top of this, so the numbers and charts can be explained in plain language, not just shown as raw data. The exact scope of the LLM part is still being decided.
+On top of this, a local LLM (run with Ollama) explains the results in plain language, so they aren't just shown as raw numbers. The LLM only explains numbers the optimizer has already calculated, and any number in its answer that doesn't match the results is flagged.
 
 ## What it does right now
 
@@ -21,7 +21,8 @@ The next step is to add an LLM on top of this, so the numbers and charts can be 
   - The portfolio with the highest Sharpe ratio (best risk-adjusted return)
   - The portfolio with the lowest risk (minimum variance)
 - Finds the same two portfolios directly with optimizers (scipy's SLSQP for the highest Sharpe ratio, cvxpy for minimum variance) and compares the Sharpe ratio and speed with the Monte Carlo search
-- Serves the optimizers through a FastAPI endpoint (`POST /optimize`) with API key authentication, rate limiting (10 requests per minute) and input validation
+- Explains the results in plain English with a local LLM (Ollama), and flags any number in the explanation that doesn't match the results
+- Serves the optimizers and explanations through a FastAPI app (`POST /optimize` and `POST /explain`) with API key authentication, rate limiting and input validation
 - Runs security scans (Bandit, pip-audit) and the tests automatically with GitHub Actions
 
 ## Results
@@ -39,6 +40,7 @@ The results use daily prices from January 2021 to December 2025 and assume a 4% 
 - yfinance (market data)
 - matplotlib (charts)
 - scipy, cvxpy (optimization)
+- Ollama (local LLM), httpx
 - FastAPI, slowapi (API and rate limiting)
 - pytest, Bandit, pip-audit, GitHub Actions (tests and security checks)
 - Jupyter
@@ -70,6 +72,17 @@ Then run all the cells (or open the notebook in VS Code and pick the `venv` kern
 python run_comparison.py
 ```
 
+### Plain-English explanation (local LLM)
+
+Install Ollama from [ollama.com](https://ollama.com), then download a model and run the script:
+
+```bash
+ollama pull llama3.2
+python explain_portfolio.py
+```
+
+To use a different model or Ollama address, set `OLLAMA_MODEL` or `OLLAMA_URL` in your `.env` file (defaults: `llama3.2` and `http://localhost:11434`). Larger models such as `llama3.1` follow the instructions more reliably but are slower.
+
 ### API
 
 Create a `.env` file in the project folder with a key of your choice (`.env` is in `.gitignore`, so it won't be committed):
@@ -93,6 +106,8 @@ curl -X POST http://127.0.0.1:8000/optimize \
   -d '{"tickers": ["CBA.AX", "BHP.AX", "CSL.AX"], "start": "2021-01-01", "end": "2025-12-31"}'
 ```
 
+Send the same request to `/explain` to also get a plain-English explanation (Ollama needs to be running). The response lists any numbers in the explanation that don't match the results under `unsupported_numbers`.
+
 ### Tests
 
 ```bash
@@ -107,21 +122,31 @@ notebooks/
 src/
   data.py                   # Downloads prices and calculates returns
   optimizer.py              # Monte Carlo search and direct optimizers
+  explain.py                # Plain-English explanations from a local LLM
 tests/
+  conftest.py               # Test setup: API client with fake price data
   test_security.py          # API tests: API key, input validation, rate limiting
+  test_optimizer.py         # Optimizer tests: weights, labels, reproducibility
+  test_explain.py           # LLM tests with a fake model: prompt, number checks, /explain
 images/
   efficient_frontier.png    # Chart shown above (created by the notebook)
 .github/workflows/
   security.yml              # Runs Bandit, pip-audit and the tests on GitHub
 api.py                      # FastAPI app for the optimizers
 run_comparison.py           # Compares Monte Carlo with the optimizers
+explain_portfolio.py        # Prints a plain-English explanation of the results
 conftest.py                 # Lets pytest import from the project root
 requirements.txt            # Python packages the project needs
 ```
 
+## Limitations
+
+- The portfolios are chosen and scored on the same 2021–2025 prices, so they look better than they would on new data.
+- The LLM can still make mistakes. The number check flags numbers that aren't in the results, but not real numbers attached to the wrong portfolio or wrong statements with no numbers in them. Small local models like `llama3.2` make these mistakes more often than larger ones, so the prompt gives the model company names, sorted weights and pre-calculated figures instead of asking it to work them out.
+
 ## Next steps
 
-- Decide the exact role of the LLM (for example, explaining portfolio results, or answering questions about them)
+- Test the portfolios on data they weren't built from (backtest)
 - Add more stocks or let the stock list be configurable
 - Clean up the notebook into reusable functions/scripts
 

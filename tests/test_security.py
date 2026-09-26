@@ -1,28 +1,5 @@
-import numpy as np
-import pandas as pd
-import pytest
-from unittest.mock import patch
-from fastapi.testclient import TestClient
-
 TICKERS = ["CBA.AX", "BHP.AX", "CSL.AX"]
 PAYLOAD = {"tickers": TICKERS, "start": "2021-01-01", "end": "2025-01-01"}
-
-
-@pytest.fixture
-def client(monkeypatch):
-    monkeypatch.setenv("OPTIMIZER_API_KEY", "test-key")
-    np.random.seed(1)
-    fake = pd.DataFrame(np.random.randn(500, 3) * 0.01, columns=TICKERS)
-
-    def fake_load(tickers=None, start=None, end=None):
-        return fake, fake.mean(), fake.cov()
-
-    import importlib
-    import api
-    importlib.reload(api)
-    with patch.object(api, "load_returns", side_effect=fake_load):
-        api.limiter.reset()
-        yield TestClient(api.app)
 
 
 def test_rejects_missing_api_key(client):
